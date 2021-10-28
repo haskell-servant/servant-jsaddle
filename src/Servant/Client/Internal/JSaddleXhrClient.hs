@@ -70,7 +70,7 @@ import qualified Language.Javascript.JSaddle.Types as JSaddle
 import           Network.HTTP.Media
                  (renderHeader)
 import           Network.HTTP.Types
-                 (ResponseHeaders, http11, mkStatus, renderQuery, statusCode)
+                 (ResponseHeaders, Status, http11, mkStatus, renderQuery, statusCode)
 import           System.IO
                  (hPutStrLn, stderr)
 
@@ -120,9 +120,9 @@ instance Alt ClientM where
 
 instance RunClient ClientM where
   throwClientError = throwError
-  runRequest r = do
+  runRequestAcceptStatus acceptStatus r = do
     d <- ClientM askDOM
-    performRequest d r
+    performRequest acceptStatus d r
 
 runClientM :: ClientM a -> ClientEnv -> DOM (Either ClientError a)
 runClientM cm env = runExceptT $ flip runReaderT env $ fromClientM cm
@@ -156,16 +156,19 @@ getDefaultBaseUrl = do
 
     pure (BaseUrl protocol hostname port "")
 
-performRequest :: DOMContext -> Request -> ClientM Response
-performRequest domc req = do
+performRequest :: Maybe [Status] -> DOMContext -> Request -> ClientM Response
+performRequest acceptStatus domc req = do
   xhr <- JS.newXMLHttpRequest `runDOM` domc
   burl <- asks baseUrl
   fixUp <- asks fixUpXhr
   performXhr xhr burl req fixUp `runDOM` domc
   resp <- toResponse domc xhr
 
-  let status = statusCode (responseStatusCode resp)
-  unless (status >= 200 && status < 300) $
+  let status = responseStatusCode resp
+      goodStatus = case acceptStatus of
+          Nothing -> statusCode status >= 200 && statusCode status < 300
+          Just good -> status `elem` good
+  unless goodStatus $
         throwError $ mkFailureResponse burl req resp
 
   pure resp
