@@ -48,6 +48,8 @@ import           Data.Foldable
                  (toList)
 import           Data.Functor.Alt
                  (Alt (..))
+import           Data.Maybe
+                 (fromMaybe)
 import           Data.Proxy
                  (Proxy (..))
 import qualified Data.Sequence                     as Seq
@@ -70,7 +72,7 @@ import qualified Language.Javascript.JSaddle.Types as JSaddle
 import           Network.HTTP.Media
                  (renderHeader)
 import           Network.HTTP.Types
-                 (ResponseHeaders, http11, mkStatus, renderQuery, statusCode)
+                 (ResponseHeaders, Status, http11, mkStatus, renderQuery, statusCode)
 import           System.IO
                  (hPutStrLn, stderr)
 
@@ -120,9 +122,15 @@ instance Alt ClientM where
 
 instance RunClient ClientM where
   throwClientError = throwError
+#if MIN_VERSION_servant_client_core(0,18,1)
+  runRequestAcceptStatus acceptStatuses r = do
+    d <- ClientM askDOM
+    performRequest (fromMaybe [] acceptStatuses) d r
+#else
   runRequest r = do
     d <- ClientM askDOM
-    performRequest d r
+    performRequest [] d r
+#endif
 
 runClientM :: ClientM a -> ClientEnv -> DOM (Either ClientError a)
 runClientM cm env = runExceptT $ flip runReaderT env $ fromClientM cm
@@ -156,8 +164,8 @@ getDefaultBaseUrl = do
 
     pure (BaseUrl protocol hostname port "")
 
-performRequest :: DOMContext -> Request -> ClientM Response
-performRequest domc req = do
+performRequest :: [Status] -> DOMContext -> Request -> ClientM Response
+performRequest acceptStatuses domc req = do
   xhr <- JS.newXMLHttpRequest `runDOM` domc
   burl <- asks baseUrl
   fixUp <- asks fixUpXhr
@@ -165,7 +173,7 @@ performRequest domc req = do
   resp <- toResponse domc xhr
 
   let status = statusCode (responseStatusCode resp)
-  unless (status >= 200 && status < 300) $
+  unless ((status >= 200 && status < 300) || status `elem` (statusCode <$> acceptStatuses)) $
         throwError $ mkFailureResponse burl req resp
 
   pure resp
