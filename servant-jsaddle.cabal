@@ -1,5 +1,5 @@
 name:               servant-jsaddle
-version:            0.16
+version:            0.17
 synopsis:
   automatic derivation of querying functions for servant webservices for jsaddle
 
